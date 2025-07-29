@@ -1,0 +1,299 @@
+pipeline {
+    agent any
+    
+    environment {
+        TF_IN_AUTOMATION = "true"
+        DOCKER_IMAGE_NAME = 'quarkus-microservice'
+        DOCKER_TAG = "${BUILD_NUMBER}"
+        AZURE_RESOURCE_GROUP = "rg-quarkus-dev"
+    }
+    
+    parameters {
+        choice(
+            name: 'ACTION',
+            choices: ['plan', 'apply', 'destroy'],
+            description: 'Terraform action to perform'
+        )
+        booleanParam(
+            name: 'AUTO_APPROVE',
+            defaultValue: false,
+            description: 'Automatically approve Terraform apply'
+        )
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                echo 'Clonando repositorio...'
+                checkout scm
+            }
+        }
+        
+        stage('Build Quarkus Application') {
+            when {
+                expression { params.ACTION != 'destroy' }
+            }
+            steps {
+                echo 'Construyendo aplicación Quarkus...'
+                dir('Quarkus-Docker') {
+                    sh '''
+                        chmod +x mvnw
+                        ./mvnw clean package -DskipTests
+                        
+                        # Verificar el JAR
+                        ls -la target/
+                    '''
+                }
+            }
+        }
+        
+        stage('Azure Authentication') {
+            steps {
+                withCredentials([string(credentialsId: 'azure-service-principal', variable: 'AZURE_CREDENTIALS_JSON')]) {
+                    sh '''
+                        echo "Configurando autenticación con Azure..."
+                        echo "$AZURE_CREDENTIALS_JSON" > azure-credentials.json
+                        
+                        export ARM_CLIENT_ID=$(jq -r .clientId azure-credentials.json)
+                        export ARM_CLIENT_SECRET=$(jq -r .clientSecret azure-credentials.json)
+                        export ARM_TENANT_ID=$(jq -r .tenantId azure-credentials.json)
+                        export ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId azure-credentials.json)
+                        
+                        # Crear archivo de variables para Terraform
+                        cd azure-terraform
+                        echo "client_id = \\"$ARM_CLIENT_ID\\"" > terraform.tfvars
+                        echo "client_secret = \\"$ARM_CLIENT_SECRET\\"" >> terraform.tfvars
+                        echo "tenant_id = \\"$ARM_TENANT_ID\\"" >> terraform.tfvars
+                        echo "subscription_id = \\"$ARM_SUBSCRIPTION_ID\\"" >> terraform.tfvars
+                        echo "environment = \\"dev\\"" >> terraform.tfvars
+                        
+                        # Login a Azure CLI
+                        az login --service-principal \
+                            --username $ARM_CLIENT_ID \
+                            --password $ARM_CLIENT_SECRET \
+                            --tenant $ARM_TENANT_ID
+                            
+                        az account set --subscription $ARM_SUBSCRIPTION_ID
+                        az account show
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Init') {
+            steps {
+                dir('azure-terraform') {
+                    sh '''
+                        echo "Inicializando Terraform..."
+                        terraform init
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Plan') {
+            steps {
+                dir('azure-terraform') {
+                    sh '''
+                        echo "Generando plan de Terraform..."
+                        terraform plan -out=tfplan
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Apply') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                script {
+                    if (!params.AUTO_APPROVE) {
+                        input message: '¿Deseas aplicar los cambios en Azure?', ok: 'Aplicar'
+                    }
+                }
+                dir('azure-terraform') {
+                    sh '''
+                        echo "Aplicando cambios en Azure..."
+                        terraform apply -auto-approve tfplan
+                        
+                        # Obtener outputs
+                        terraform output -json > terraform-outputs.json
+                        cat terraform-outputs.json
+                    '''
+                }
+            }
+        }
+        
+        stage('Build and Push Docker Image') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                script {
+                    dir('azure-terraform') {
+                        // Obtener información del Container Registry
+                        def acrName = sh(
+                            script: "terraform output -raw container_registry_url 2>/dev/null || echo ''",
+                            returnStdout: true
+                        ).trim()
+                        
+                        if (acrName) {
+                            echo "Container Registry encontrado: ${acrName}"
+                            
+                            dir('../Quarkus-Docker') {
+                                sh '''
+                                    # Construir imagen Docker para Azure
+                                    docker build -t quarkus-microservice:azure .
+                                    
+                                    # Tag para ACR
+                                    ACR_NAME=$(cd ../azure-terraform && terraform output -raw container_registry_url)
+                                    docker tag quarkus-microservice:azure ${ACR_NAME}/quarkus-microservice:latest
+                                    docker tag quarkus-microservice:azure ${ACR_NAME}/quarkus-microservice:${BUILD_NUMBER}
+                                    
+                                    # Login a ACR
+                                    ACR_USERNAME=$(cd ../azure-terraform && az acr credential show --name $(terraform output -raw container_registry_url | cut -d'.' -f1) --query username -o tsv)
+                                    ACR_PASSWORD=$(cd ../azure-terraform && az acr credential show --name $(terraform output -raw container_registry_url | cut -d'.' -f1) --query passwords[0].value -o tsv)
+                                    
+                                    echo $ACR_PASSWORD | docker login $ACR_NAME --username $ACR_USERNAME --password-stdin
+                                    
+                                    # Push imagen
+                                    docker push ${ACR_NAME}/quarkus-microservice:latest
+                                    docker push ${ACR_NAME}/quarkus-microservice:${BUILD_NUMBER}
+                                    
+                                    echo "✅ Imagen subida a ACR: ${ACR_NAME}/quarkus-microservice:latest"
+                                '''
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to App Service') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                dir('azure-terraform') {
+                    sh '''
+                        echo "Configurando App Service..."
+                        
+                        # Obtener información del deployment
+                        APP_NAME=$(terraform output -raw app_service_name)
+                        ACR_NAME=$(terraform output -raw container_registry_url)
+                        
+                        # Reiniciar App Service para aplicar nueva imagen
+                        az webapp restart --name $APP_NAME --resource-group $(terraform output -raw resource_group_name)
+                        
+                        echo "✅ Aplicación desplegada en: $(terraform output -raw app_service_url)"
+                        
+                        # Esperar un momento para que la aplicación esté lista
+                        echo "Esperando a que la aplicación esté lista..."
+                        sleep 60
+                    '''
+                }
+            }
+        }
+        
+        stage('Test Deployment') {
+            when {
+                expression { params.ACTION == 'apply' }
+            }
+            steps {
+                dir('azure-terraform') {
+                    sh '''
+                        APP_URL=$(terraform output -raw app_service_url)
+                        echo "Probando aplicación en: $APP_URL"
+                        
+                        # Probar endpoints
+                        for i in {1..10}; do
+                            echo "Intento $i de 10..."
+                            if curl -f -s "${APP_URL}/users/hello"; then
+                                echo "✅ Endpoint /users/hello responde correctamente"
+                                break
+                            else
+                                echo "❌ Endpoint no responde, reintentando en 30 segundos..."
+                                sleep 30
+                            fi
+                        done
+                        
+                        # Probar otros endpoints
+                        curl -f "${APP_URL}/users" || echo "Endpoint /users no disponible aún"
+                        curl -f "${APP_URL}/movies" || echo "Endpoint /movies no disponible aún"
+                        curl -f "${APP_URL}/health" || echo "Health check no disponible aún"
+                        
+                        echo "🚀 Aplicación desplegada en: $APP_URL"
+                    '''
+                }
+            }
+        }
+        
+        stage('Terraform Destroy') {
+            when {
+                expression { params.ACTION == 'destroy' }
+            }
+            steps {
+                input message: '⚠️ ¿Estás seguro de que quieres destruir la infraestructura?', ok: 'Destruir'
+                dir('azure-terraform') {
+                    sh '''
+                        echo "Destruyendo infraestructura..."
+                        terraform destroy -auto-approve
+                    '''
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            dir('azure-terraform') {
+                // Archivar outputs de Terraform
+                archiveArtifacts artifacts: 'terraform-outputs.json', allowEmptyArchive: true
+                
+                // Limpiar archivos sensibles
+                sh '''
+                    rm -f azure-credentials.json
+                    rm -f terraform.tfvars
+                '''
+            }
+            
+            // Limpiar imágenes Docker locales
+            sh '''
+                docker system prune -f
+            '''
+        }
+        success {
+            script {
+                if (params.ACTION == 'apply') {
+                    dir('azure-terraform') {
+                        def appUrl = sh(
+                            script: "terraform output -raw app_service_url 2>/dev/null || echo 'No disponible'",
+                            returnStdout: true
+                        ).trim()
+                        
+                        echo """
+                        ✅ Despliegue completado exitosamente!
+                        
+                        📱 Aplicación: ${appUrl}
+                        📊 Endpoints disponibles:
+                        - ${appUrl}/users/hello
+                        - ${appUrl}/users
+                        - ${appUrl}/movies
+                        - ${appUrl}/critics
+                        - ${appUrl}/reviews
+                        - ${appUrl}/health
+                        """
+                    }
+                } else if (params.ACTION == 'destroy') {
+                    echo '🗑️ Infraestructura destruida exitosamente'
+                } else {
+                    echo '📋 Plan de Terraform generado exitosamente'
+                }
+            }
+        }
+        failure {
+            echo '❌ Pipeline falló. Revisa los logs para más detalles.'
+        }
+    }
+}
