@@ -484,6 +484,405 @@ az appservice plan update \
 ### Próximos pasos recomendados
 
 1. **Configurar CI/CD** con GitHub Actions o Azure DevOps
-2. **Implementar SSL personalizado**
-3. **Configurar alertas de monitoreo**
-4. **Implementar backup automático de la base de datos**
+
+---
+
+## CI/CD con GitHub Actions
+
+### Configuración del Pipeline de GitHub Actions
+
+Para automatizar el despliegue de tu aplicación Quarkus en Azure cada vez que hagas push al repositorio, necesitas crear workflows de GitHub Actions. Basándome en tu repositorio `https://github.com/Over1185/Examen-Parcial`, aquí está la configuración completa.
+
+### Estructura de archivos que necesitas crear
+
+En tu repositorio, necesitas crear la siguiente estructura:
+
+```
+.github/
+└── workflows/
+    ├── ci.yml                    # Pipeline de CI (Build y Tests)
+    └── azure-deploy.yml          # Pipeline de Deploy a Azure
+```
+
+### Paso 1: Crear el directorio .github/workflows
+
+```bash
+# En la raíz de tu repositorio
+mkdir -p .github/workflows
+```
+
+### Paso 2: Crear el workflow de CI (Build y Tests)
+
+Crea el archivo `.github/workflows/ci.yml`:
+
+```yaml
+name: CI - Build and Test
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      
+    - name: Configurar Java 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Cache dependencias Maven
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Ejecutar tests
+      working-directory: ./Quarkus-Docker
+      run: ./mvnw clean test
+      
+    - name: Compilar aplicación
+      working-directory: ./Quarkus-Docker
+      run: ./mvnw clean package -DskipTests
+      
+    - name: Construir imagen Docker
+      working-directory: ./Quarkus-Docker
+      run: |
+        docker build -t quarkus-microservice:${{ github.sha }} .
+        docker tag quarkus-microservice:${{ github.sha }} quarkus-microservice:latest
+        
+    - name: Probar imagen Docker
+      run: |
+        docker run -d --name test-container -p 8080:8080 quarkus-microservice:latest
+        sleep 30
+        curl -f http://localhost:8080/users/hello || exit 1
+        docker stop test-container
+        docker rm test-container
+```
+
+### Paso 3: Crear el workflow de Deploy a Azure
+
+Crea el archivo `.github/workflows/azure-deploy.yml`:
+
+```yaml
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+env:
+  AZURE_WEBAPP_NAME: webapp-quarkus-movies
+  AZURE_RESOURCE_GROUP: rg-quarkus-app
+  CONTAINER_REGISTRY: acrquarkusapp.azurecr.io
+  IMAGE_NAME: quarkus-microservice
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      
+    - name: Configurar Java 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Cache dependencias Maven
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Compilar aplicación
+      working-directory: ./Quarkus-Docker
+      run: ./mvnw clean package -DskipTests
+      
+    - name: Login a Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Login a Azure Container Registry
+      run: |
+        az acr login --name acrquarkusapp
+        
+    - name: Construir y subir imagen Docker
+      working-directory: ./Quarkus-Docker
+      run: |
+        IMAGE_TAG=${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        IMAGE_LATEST=${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        
+        docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+        docker push $IMAGE_TAG
+        docker push $IMAGE_LATEST
+        
+    - name: Deploy a Azure App Service
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        
+    - name: Verificar deployment
+      run: |
+        echo "Esperando que la aplicación esté lista..."
+        sleep 60
+        APP_URL="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        curl -f $APP_URL/users/hello || exit 1
+        echo "✅ Deployment exitoso! App disponible en: $APP_URL"
+```
+
+### Paso 4: Configurar Secrets en GitHub
+
+En tu repositorio de GitHub, ve a **Settings > Secrets and variables > Actions** y agrega los siguientes secrets:
+
+#### AZURE_CREDENTIALS
+
+Ejecuta este comando para crear un Service Principal:
+
+```bash
+az ad sp create-for-rbac --name "github-actions-sp" \
+  --role contributor \
+  --scopes /subscriptions/YOUR_SUBSCRIPTION_ID \
+  --sdk-auth
+```
+
+Copia la salida JSON completa y pégala como el valor del secret `AZURE_CREDENTIALS`:
+
+```json
+{
+  "clientId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "clientSecret": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "subscriptionId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+  "tenantId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+}
+```
+
+### Paso 5: Crear workflow avanzado con múltiples ambientes
+
+Para un setup más avanzado, crea `.github/workflows/azure-deploy-advanced.yml`:
+
+```yaml
+name: Deploy to Azure (Multi-Environment)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+        - staging
+        - production
+
+env:
+  CONTAINER_REGISTRY: acrquarkusapp.azurecr.io
+  IMAGE_NAME: quarkus-microservice
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      image-tag: ${{ steps.meta.outputs.tags }}
+      image-digest: ${{ steps.build.outputs.digest }}
+      
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      
+    - name: Configurar Java 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Cache dependencias Maven
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Ejecutar tests
+      working-directory: ./Quarkus-Docker
+      run: ./mvnw clean test
+      
+    - name: Compilar aplicación
+      working-directory: ./Quarkus-Docker
+      run: ./mvnw clean package -DskipTests
+      
+    - name: Login a Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Login a ACR
+      run: az acr login --name acrquarkusapp
+      
+    - name: Extraer metadata
+      id: meta
+      uses: docker/metadata-action@v4
+      with:
+        images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+          
+    - name: Construir y subir imagen
+      id: build
+      working-directory: ./Quarkus-Docker
+      run: |
+        IMAGE_TAG=${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        docker build -t $IMAGE_TAG .
+        docker push $IMAGE_TAG
+        echo "digest=$(docker inspect --format='{{index .RepoDigests 0}}' $IMAGE_TAG)" >> $GITHUB_OUTPUT
+
+  deploy-staging:
+    if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && github.event.inputs.environment == 'staging')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: staging
+    
+    steps:
+    - name: Login a Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Deploy a Staging
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: webapp-quarkus-movies-staging
+        images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    
+    steps:
+    - name: Login a Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Deploy a Production
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: webapp-quarkus-movies
+        images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        
+    - name: Ejecutar smoke tests
+      run: |
+        echo "Ejecutando smoke tests..."
+        sleep 60
+        APP_URL="https://webapp-quarkus-movies.azurewebsites.net"
+        
+        # Test health endpoint
+        curl -f $APP_URL/users/hello || exit 1
+        
+        # Test API endpoints
+        curl -f $APP_URL/users || exit 1
+        curl -f $APP_URL/movies || exit 1
+        curl -f $APP_URL/critics || exit 1
+        curl -f $APP_URL/reviews || exit 1
+        
+        echo "✅ Todos los smoke tests pasaron!"
+```
+
+### Paso 6: Configurar notificaciones (opcional)
+
+Crea `.github/workflows/notify.yml` para notificaciones:
+
+```yaml
+name: Notifications
+
+on:
+  workflow_run:
+    workflows: ["Deploy to Azure"]
+    types:
+      - completed
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    
+    steps:
+    - name: Notificar fallo en Slack
+      uses: 8398a7/action-slack@v3
+      with:
+        status: failure
+        channel: '#deployments'
+        webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+```
+
+### Comandos para agregar los archivos a tu repositorio
+
+Ejecuta estos comandos en la raíz de tu repositorio local:
+
+```bash
+# Crear la estructura de directorios
+mkdir -p .github/workflows
+
+# Crear los archivos (necesitarás copiar el contenido de arriba)
+touch .github/workflows/ci.yml
+touch .github/workflows/azure-deploy.yml
+touch .github/workflows/azure-deploy-advanced.yml
+
+# Agregar al repositorio
+git add .github/
+git commit -m "feat: agregar workflows de GitHub Actions para CI/CD"
+git push origin main
+```
+
+### Verificación del Setup
+
+Una vez que agregues los archivos y hagas push:
+
+1. **Ve a tu repositorio en GitHub**
+2. **Haz clic en la pestaña "Actions"**
+3. **Verifica que los workflows aparezcan**
+4. **Haz un pequeño cambio y push para probar el pipeline**
+
+### Beneficios de esta configuración
+
+- ✅ **Automatización completa**: Desde push hasta producción
+- ✅ **Tests automáticos**: Se ejecutan en cada PR
+- ✅ **Multi-ambiente**: Staging y Production
+- ✅ **Rollback fácil**: Usando tags de imagen
+- ✅ **Monitoreo**: Smoke tests post-deployment
+- ✅ **Notificaciones**: En caso de fallos
+
+Tu repositorio ya tiene toda la estructura necesaria, solo necesitas agregar estos workflows para tener un CI/CD completo.
