@@ -85,6 +85,11 @@
                         </goals>
                     </execution>
                 </executions>
+                <configuration>
+                    <properties>
+                        <quarkus.package.type>uber-jar</quarkus.package.type>
+                    </properties>
+                </configuration>
             </plugin>
             <plugin>
                 <artifactId>maven-compiler-plugin</artifactId>

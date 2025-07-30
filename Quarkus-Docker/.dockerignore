@@ -1,5 +1,15 @@
-*
-!target/*-runner
-!target/*-runner.jar
-!target/lib/*
-!target/quarkus-app/*
+# Excluir archivos innecesarios para el build
+target/
+.git/
+.gitignore
+README.md
+*.md
+.vscode/
+.idea/
+*.log
+
+# Mantener archivos necesarios para el build
+!pom.xml
+!src/
+!Dockerfile
+!.dockerignore

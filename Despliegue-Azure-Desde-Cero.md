@@ -75,8 +75,8 @@ az account list --output table
 4. **Completa la información**:
    - **Subscription**: Selecciona tu suscripción
    - **Resource group**: Crea uno nuevo llamado `rg-quarkus-app`
-   - **Registry name**: `acrquarkusapp` (debe ser único globalmente)
-   - **Location**: `East US` o la región más cercana
+   - **Registry name**: `ACquarkusapp` (debe ser único globalmente, usa mayúsculas)
+   - **Location**: `East US 2` o `Central US` (Azure for Students puede tener restricciones en East US)
    - **SKU**: `Basic` (para desarrollo)
 5. **Haz clic en "Review + create"**
 6. **Haz clic en "Create"**
@@ -90,12 +90,12 @@ az group create --name rg-quarkus-app --location eastus
 # Crear Azure Container Registry
 az acr create \
   --resource-group rg-quarkus-app \
-  --name acrquarkusapp \
+  --name ACquarkusapp \
   --sku Basic \
   --admin-enabled true
 
 # Obtener las credenciales del registry
-az acr credential show --name acrquarkusapp
+az acr credential show --name ACquarkusapp
 ```
 
 ---
@@ -172,8 +172,8 @@ az webapp create \
 3. **Haz clic en "+ Create"**
 4. **Configura la base de datos**:
    - **Resource group**: `rg-quarkus-app`
-   - **Server name**: `postgres-quarkus-app`
-   - **Region**: `East US`
+   - **Server name**: `postgres-quarkus-app-ac` (usa un sufijo único como `-ac`, `-roddy`, etc.)
+   - **Region**: `East US 2` o `Central US` (Azure for Students puede tener restricciones en East US)
    - **PostgreSQL version**: `15`
    - **Workload type**: `Development`
    - **Compute + storage**: `Burstable, B1ms` (1 vCore, 2 GiB RAM)
@@ -186,14 +186,16 @@ az webapp create \
 7. **Haz clic en "Review + create"**
 8. **Haz clic en "Create"**
 
+**⚠️ Nota importante:** Si recibes un error de región no disponible, prueba con `Central US`, `West US 2`, o `North Europe`.
+
 ### Opción B: Usando Azure CLI
 
 ```bash
 # Crear PostgreSQL Flexible Server
 az postgres flexible-server create \
   --resource-group rg-quarkus-app \
-  --name postgres-quarkus-app \
-  --location eastus \
+  --name postgres-quarkus-app-ac \
+  --location eastus2 \
   --admin-user postgres \
   --admin-password QuarkusApp2024! \
   --sku-name Standard_B1ms \
@@ -204,7 +206,7 @@ az postgres flexible-server create \
 # Crear la base de datos
 az postgres flexible-server db create \
   --resource-group rg-quarkus-app \
-  --server-name postgres-quarkus-app \
+  --server-name postgres-quarkus-app-ac \
   --database-name quarkusdb
 ```
 
@@ -232,17 +234,32 @@ docker images | grep quarkus-microservice
 
 ```bash
 # Hacer login al ACR
-az acr login --name acrquarkusapp
+az acr login --name ACquarkusapp
 
 # Etiquetar la imagen para el registry
-docker tag quarkus-microservice:latest acrquarkusapp.azurecr.io/quarkus-microservice:latest
+docker tag quarkus-microservice:latest ACquarkusapp.azurecr.io/quarkus-microservice:latest
 
 # Subir la imagen
-docker push acrquarkusapp.azurecr.io/quarkus-microservice:latest
+docker push ACquarkusapp.azurecr.io/quarkus-microservice:latest
 
 # Verificar que se subió
-az acr repository list --name acrquarkusapp --output table
+az acr repository list --name ACquarkusapp --output table
 ```
+
+---
+
+## Crear la Base de Datos
+
+### Paso 1: Acceder al servidor PostgreSQL
+1. **Ve a tu servidor PostgreSQL** `postgres-quarkus-app-ac`
+2. **En el menú izquierdo, busca "Bases de datos"**
+3. **Haz clic en "+ Agregar"**
+4. **Nombre de la base de datos:** `quarkusdb`
+5. **Haz clic en "Crear"**
+
+### Paso 2: Verificar que se creó
+1. **Verifica que `quarkusdb` aparezca en la lista** con tipo "User"
+2. **La base de datos debe estar en estado "Disponible"**
 
 ---
 
@@ -259,7 +276,7 @@ az acr repository list --name acrquarkusapp --output table
 | `QUARKUS_DATASOURCE_DB_KIND` | `postgresql` |
 | `QUARKUS_DATASOURCE_USERNAME` | `postgres` |
 | `QUARKUS_DATASOURCE_PASSWORD` | `QuarkusApp2024!` |
-| `QUARKUS_DATASOURCE_JDBC_URL` | `jdbc:postgresql://postgres-quarkus-app.postgres.database.azure.com:5432/quarkusdb?sslmode=require` |
+| `QUARKUS_DATASOURCE_JDBC_URL` | `jdbc:postgresql://postgres-quarkus-app-ac.postgres.database.azure.com:5432/quarkusdb?sslmode=require` |
 | `QUARKUS_HIBERNATE_ORM_DATABASE_GENERATION` | `update` |
 | `WEBSITES_PORT` | `8080` |
 
@@ -276,7 +293,7 @@ az webapp config appsettings set \
     QUARKUS_DATASOURCE_DB_KIND=postgresql \
     QUARKUS_DATASOURCE_USERNAME=postgres \
     QUARKUS_DATASOURCE_PASSWORD=QuarkusApp2024! \
-    QUARKUS_DATASOURCE_JDBC_URL="jdbc:postgresql://postgres-quarkus-app.postgres.database.azure.com:5432/quarkusdb?sslmode=require" \
+    QUARKUS_DATASOURCE_JDBC_URL="jdbc:postgresql://postgres-quarkus-app-ac.postgres.database.azure.com:5432/quarkusdb?sslmode=require" \
     QUARKUS_HIBERNATE_ORM_DATABASE_GENERATION=update \
     WEBSITES_PORT=8080
 ```
@@ -291,10 +308,12 @@ az webapp config appsettings set \
 2. **En el menú izquierdo, selecciona "Deployment Center"**
 3. **Configura el registry**:
    - **Source**: `Azure Container Registry`
-   - **Registry**: `acrquarkusapp`
+   - **Registry**: `ACquarkusapp`
    - **Image**: `quarkus-microservice`
    - **Tag**: `latest`
 4. **Haz clic en "Save"**
+
+**⚠️ Nota:** Si usas mayúsculas en el nombre del registry, Azure CLI te advertirá. Usa el nombre exacto que creaste.
 
 ### Usando Azure CLI
 
@@ -303,18 +322,18 @@ az webapp config appsettings set \
 az webapp config container set \
   --name webapp-quarkus-movies \
   --resource-group rg-quarkus-app \
-  --docker-custom-image-name acrquarkusapp.azurecr.io/quarkus-microservice:latest \
-  --docker-registry-server-url https://acrquarkusapp.azurecr.io
+  --docker-custom-image-name ACquarkusapp.azurecr.io/quarkus-microservice:latest \
+  --docker-registry-server-url https://ACquarkusapp.azurecr.io
 
 # Obtener credenciales del ACR y configurarlas
-ACR_USERNAME=$(az acr credential show --name acrquarkusapp --query username --output tsv)
-ACR_PASSWORD=$(az acr credential show --name acrquarkusapp --query passwords[0].value --output tsv)
+ACR_USERNAME=$(az acr credential show --name ACquarkusapp --query username --output tsv)
+ACR_PASSWORD=$(az acr credential show --name ACquarkusapp --query passwords[0].value --output tsv)
 
 az webapp config appsettings set \
   --resource-group rg-quarkus-app \
   --name webapp-quarkus-movies \
   --settings \
-    DOCKER_REGISTRY_SERVER_URL=https://acrquarkusapp.azurecr.io \
+    DOCKER_REGISTRY_SERVER_URL=https://ACquarkusapp.azurecr.io \
     DOCKER_REGISTRY_SERVER_USERNAME=$ACR_USERNAME \
     DOCKER_REGISTRY_SERVER_PASSWORD=$ACR_PASSWORD
 ```
@@ -886,3 +905,5 @@ Una vez que agregues los archivos y hagas push:
 - ✅ **Notificaciones**: En caso de fallos
 
 Tu repositorio ya tiene toda la estructura necesaria, solo necesitas agregar estos workflows para tener un CI/CD completo.
+
+
