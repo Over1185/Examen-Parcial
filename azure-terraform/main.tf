@@ -16,6 +16,9 @@ provider "azurerm" {
   client_secret   = var.client_secret
   tenant_id       = var.tenant_id
   subscription_id = var.subscription_id
+  
+  # Deshabilitar registro automático de proveedores para evitar errores de permisos
+  resource_provider_registrations = "none"
 }
 
 # Variables
