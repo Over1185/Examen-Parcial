@@ -98,13 +98,13 @@ resource "azurerm_linux_web_app" "quarkus_app" {
   }
 
   app_settings = {
-    "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
-    "POSTGRES_USER"                       = data.azurerm_postgresql_flexible_server.postgres.administrator_login
-    "POSTGRES_PASSWORD"                   = "QuarkusAdmin123!"
-    "POSTGRES_URL"                        = "jdbc:postgresql://${data.azurerm_postgresql_flexible_server.postgres.fqdn}:5432/quarkusdb?sslmode=require"
-    "QUARKUS_PROFILE"                     = "azure"
-    "PORT"                                = "8080"
-  }
+  "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
+  "POSTGRES_USER"                       = "${data.azurerm_postgresql_flexible_server.postgres.administrator_login}@${data.azurerm_postgresql_flexible_server.postgres.name}"
+  "POSTGRES_PASSWORD"                   = "QuarkusAdmin123!"
+  "POSTGRES_URL"                        = "jdbc:postgresql://${data.azurerm_postgresql_flexible_server.postgres.fqdn}:5432/quarkusdb?sslmode=require"
+  "QUARKUS_PROFILE"                     = "azure"
+  "PORT"                                = "8080"
+}
 
   tags = {
     Environment = var.environment
