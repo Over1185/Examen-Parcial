@@ -73,13 +73,38 @@ data "azurerm_postgresql_flexible_server" "postgres" {
   resource_group_name = data.azurerm_resource_group.quarkus_rg.name
 }
 
-# Crear App Service Plan nuevo (porque webapp-quarkus-movies es una Web App, no un Plan)
-resource "azurerm_service_plan" "app_service_plan" {
-  name                = "asp-quarkus-dev"
+# Usar el App Service Plan existente
+data "azurerm_service_plan" "app_service_plan" {
+  name                = "asp-quarkus-app"
   resource_group_name = data.azurerm_resource_group.quarkus_rg.name
-  location            = data.azurerm_resource_group.quarkus_rg.location
-  os_type             = "Linux"
-  sku_name            = "B1"
+}
+
+# Crear Web App
+resource "azurerm_linux_web_app" "quarkus_app" {
+  name                = "webapp-quarkus-dev"
+  resource_group_name = data.azurerm_resource_group.quarkus_rg.name
+  location            = data.azurerm_service_plan.app_service_plan.location
+  service_plan_id     = data.azurerm_service_plan.app_service_plan.id
+
+  site_config {
+    application_stack {
+      docker_image_name        = "quarkus-microservice:latest"
+      docker_registry_url      = "https://${data.azurerm_container_registry.acr.login_server}"
+      docker_registry_username = data.azurerm_container_registry.acr.admin_username
+      docker_registry_password = data.azurerm_container_registry.acr.admin_password
+    }
+
+    always_on = false
+  }
+
+  app_settings = {
+    "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
+    "POSTGRES_USER"                       = data.azurerm_postgresql_flexible_server.postgres.administrator_login
+    "POSTGRES_PASSWORD"                   = data.azurerm_postgresql_flexible_server.postgres.administrator_password
+    "POSTGRES_URL"                        = "jdbc:postgresql://${data.azurerm_postgresql_flexible_server.postgres.fqdn}:5432/quarkusdb"
+    "QUARKUS_PROFILE"                     = "azure"
+    "PORT"                                = "8080"
+  }
 
   tags = {
     Environment = var.environment
@@ -94,8 +119,13 @@ output "resource_group_name" {
 }
 
 output "app_service_name" {
-  description = "Name of the App Service Plan"
-  value       = azurerm_service_plan.app_service_plan.name
+  description = "Name of the Web App"
+  value       = azurerm_linux_web_app.quarkus_app.name
+}
+
+output "app_service_url" {
+  description = "URL of the Web App"
+  value       = "https://${azurerm_linux_web_app.quarkus_app.default_hostname}"
 }
 
 output "container_registry_url" {
