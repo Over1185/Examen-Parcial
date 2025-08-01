@@ -151,10 +151,15 @@ pipeline {
                                     docker tag quarkus-microservice:azure ${ACR_NAME}/quarkus-microservice:latest
                                     docker tag quarkus-microservice:azure ${ACR_NAME}/quarkus-microservice:${BUILD_NUMBER}
                                     
-                                    # Login a ACR
-                                    ACR_USERNAME=$(cd ../azure-terraform && az acr credential show --name $(terraform output -raw container_registry_url | cut -d'.' -f1) --query username -o tsv)
-                                    ACR_PASSWORD=$(cd ../azure-terraform && az acr credential show --name $(terraform output -raw container_registry_url | cut -d'.' -f1) --query passwords[0].value -o tsv)
+                                    # Habilitar admin en ACR si no está habilitado
+                                    cd ../azure-terraform
+                                    az acr update -n $(terraform output -raw container_registry_url | cut -d'.' -f1) --admin-enabled true
                                     
+                                    # Login a ACR
+                                    ACR_USERNAME=$(az acr credential show --name $(terraform output -raw container_registry_url | cut -d'.' -f1) --query username -o tsv)
+                                    ACR_PASSWORD=$(az acr credential show --name $(terraform output -raw container_registry_url | cut -d'.' -f1) --query passwords[0].value -o tsv)
+                                    
+                                    cd ../Quarkus-Docker
                                     echo $ACR_PASSWORD | docker login $ACR_NAME --username $ACR_USERNAME --password-stdin
                                     
                                     # Push imagen
