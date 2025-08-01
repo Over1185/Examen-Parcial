@@ -28,6 +28,37 @@ pipeline {
             }
         }
         
+        stage('Setup Test Database') {
+            steps {
+                echo 'Configurando base de datos para tests...'
+                sh '''
+                    # Limpiar contenedores anteriores si existen
+                    docker stop postgres-test || true
+                    docker rm postgres-test || true
+                    
+                    # Crear red si no existe
+                    docker network create quarkus-test-network || true
+                    
+                    # Levantar PostgreSQL para tests
+                    docker run -d --name postgres-test \
+                        --network quarkus-test-network \
+                        -e POSTGRES_DB=quarkusdb \
+                        -e POSTGRES_USER=postgres \
+                        -e POSTGRES_PASSWORD=admin \
+                        -p 5432:5432 \
+                        postgres:15-alpine
+                    
+                    # Esperar a que PostgreSQL esté listo
+                    echo "Esperando a que PostgreSQL esté listo..."
+                    sleep 30
+                    
+                    # Verificar que PostgreSQL está funcionando
+                    docker exec postgres-test pg_isready -U postgres
+                    echo "✅ PostgreSQL listo para tests"
+                '''
+            }
+        }
+        
         stage('Test Aplicación Quarkus') {
             steps {
                 echo 'Ejecutando tests de la aplicación Quarkus...'
@@ -36,6 +67,7 @@ pipeline {
                         # Ejecutar tests con Maven wrapper
                         chmod +x mvnw
                         ./mvnw test -DskipITs=true
+                        echo "✅ Tests ejecutados exitosamente"
                     '''
                 }
             }
@@ -46,7 +78,7 @@ pipeline {
                 echo 'Construyendo aplicación Quarkus...'
                 dir('Quarkus-Docker') {
                     sh '''
-                        # Construir la aplicación
+                        # Construir la aplicación (sin tests)
                         ./mvnw clean package -DskipTests
                         
                         # Verificar que el JAR fue creado
@@ -55,6 +87,7 @@ pipeline {
                             echo "Error: JAR no encontrado"
                             exit 1
                         fi
+                        echo "✅ JAR construido exitosamente"
                     '''
                 }
             }
