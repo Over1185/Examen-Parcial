@@ -100,7 +100,7 @@ resource "azurerm_linux_web_app" "quarkus_app" {
   app_settings = {
     "WEBSITES_ENABLE_APP_SERVICE_STORAGE" = "false"
     "POSTGRES_USER"                       = data.azurerm_postgresql_flexible_server.postgres.administrator_login
-    "POSTGRES_PASSWORD"                   = data.azurerm_postgresql_flexible_server.postgres.administrator_password
+    "POSTGRES_PASSWORD"                   = "QuarkusAdmin123!"
     "POSTGRES_URL"                        = "jdbc:postgresql://${data.azurerm_postgresql_flexible_server.postgres.fqdn}:5432/quarkusdb"
     "QUARKUS_PROFILE"                     = "azure"
     "PORT"                                = "8080"
