@@ -69,14 +69,22 @@ data "azurerm_container_registry" "acr" {
 
 # Usar el PostgreSQL existente
 data "azurerm_postgresql_flexible_server" "postgres" {
-  name                = "postgres-quarkus-app"
+  name                = "postgres-quarkus-app-ac"
   resource_group_name = data.azurerm_resource_group.quarkus_rg.name
 }
 
-# Usar el App Service Plan existente
-data "azurerm_service_plan" "app_service_plan" {
-  name                = "webapp-quarkus-movies"
+# Crear App Service Plan nuevo (porque webapp-quarkus-movies es una Web App, no un Plan)
+resource "azurerm_service_plan" "app_service_plan" {
+  name                = "asp-quarkus-dev"
   resource_group_name = data.azurerm_resource_group.quarkus_rg.name
+  location            = data.azurerm_resource_group.quarkus_rg.location
+  os_type             = "Linux"
+  sku_name            = "B1"
+
+  tags = {
+    Environment = var.environment
+    Project     = "QuarkusMoviesAPI"
+  }
 }
 
 # Outputs
@@ -86,8 +94,8 @@ output "resource_group_name" {
 }
 
 output "app_service_name" {
-  description = "Name of the App Service"
-  value       = data.azurerm_service_plan.app_service_plan.name
+  description = "Name of the App Service Plan"
+  value       = azurerm_service_plan.app_service_plan.name
 }
 
 output "container_registry_url" {
