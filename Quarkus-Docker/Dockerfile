@@ -30,5 +30,10 @@ USER quarkus
 # Exponer puerto
 EXPOSE 8080
 
+# Variables de entorno por defecto
+ENV QUARKUS_DATASOURCE_DB_KIND=postgresql
+ENV QUARKUS_DATASOURCE_USERNAME=postgres
+ENV QUARKUS_DATASOURCE_PASSWORD=admin
+ENV QUARKUS_DATASOURCE_JDBC_URL=jdbc:postgresql://postgres:5432/quarkusdb
 # Comando para ejecutar la aplicación
 CMD ["java", "-jar", "/app/application.jar"]
