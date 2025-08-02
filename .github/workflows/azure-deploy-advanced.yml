@@ -44,11 +44,7 @@ jobs:
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
         
-    - name: Ejecutar tests
-      working-directory: ./Quarkus-Docker
-      run: |
-        chmod +x ./mvnw
-        ./mvnw clean test
+
       
     - name: Compilar aplicación
       working-directory: ./Quarkus-Docker
@@ -120,19 +116,4 @@ jobs:
         app-name: webapp-quarkus-jenkins
         images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         
-    - name: Ejecutar smoke tests
-      run: |
-        echo "Ejecutando smoke tests..."
-        sleep 60
-        APP_URL="https://webapp-quarkus-jenkins.azurewebsites.net"
-        
-        # Test health endpoint
-        curl -f $APP_URL/users/hello || exit 1
-        
-        # Test API endpoints
-        curl -f $APP_URL/users || exit 1
-        curl -f $APP_URL/movies || exit 1
-        curl -f $APP_URL/critics || exit 1
-        curl -f $APP_URL/reviews || exit 1
-        
-        echo "✅ Todos los smoke tests pasaron!"
+

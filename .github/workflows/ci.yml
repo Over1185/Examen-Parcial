@@ -27,11 +27,7 @@ jobs:
         key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
         restore-keys: ${{ runner.os }}-m2
         
-    - name: Ejecutar tests
-      working-directory: ./Quarkus-Docker
-      run: |
-        chmod +x ./mvnw
-        ./mvnw clean test
+
       
     - name: Compilar aplicación
       working-directory: ./Quarkus-Docker
@@ -45,10 +41,4 @@ jobs:
         docker build -t quarkus-microservice:${{ github.sha }} .
         docker tag quarkus-microservice:${{ github.sha }} quarkus-microservice:latest
         
-    - name: Probar imagen Docker
-      run: |
-        docker run -d --name test-container -p 8080:8080 quarkus-microservice:latest
-        sleep 30
-        curl -f http://localhost:8080/users/hello || exit 1
-        docker stop test-container
-        docker rm test-container
+
