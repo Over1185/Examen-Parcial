@@ -43,7 +43,9 @@ jobs:
         
     - name: Compilar aplicación
       working-directory: ./Quarkus-Docker
-      run: ./mvnw clean package -DskipTests
+      run: |
+        chmod +x ./mvnw
+        ./mvnw clean package -DskipTests
       
     - name: Login a Azure
       uses: azure/login@v1

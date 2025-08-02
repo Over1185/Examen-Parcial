@@ -46,11 +46,15 @@ jobs:
         
     - name: Ejecutar tests
       working-directory: ./Quarkus-Docker
-      run: ./mvnw clean test
+      run: |
+        chmod +x ./mvnw
+        ./mvnw clean test
       
     - name: Compilar aplicación
       working-directory: ./Quarkus-Docker
-      run: ./mvnw clean package -DskipTests
+      run: |
+        chmod +x ./mvnw
+        ./mvnw clean package -DskipTests
       
     - name: Login a Azure
       uses: azure/login@v1
