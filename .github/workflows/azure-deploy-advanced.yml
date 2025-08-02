@@ -17,7 +17,7 @@ on:
         - production
 
 env:
-  CONTAINER_REGISTRY: acrquarkusapp.azurecr.io
+  CONTAINER_REGISTRY: acquarkusjenkins.azurecr.io
   IMAGE_NAME: quarkus-microservice
 
 jobs:
@@ -58,7 +58,7 @@ jobs:
         creds: ${{ secrets.AZURE_CREDENTIALS }}
         
     - name: Login a ACR
-      run: az acr login --name acrquarkusapp
+      run: az acr login --name acquarkusjenkins
       
     - name: Extraer metadata
       id: meta
@@ -95,7 +95,7 @@ jobs:
     - name: Deploy a Staging
       uses: azure/webapps-deploy@v2
       with:
-        app-name: webapp-quarkus-movies-staging
+        app-name: webapp-quarkus-jenkins-staging
         images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
   deploy-production:
@@ -113,14 +113,14 @@ jobs:
     - name: Deploy a Production
       uses: azure/webapps-deploy@v2
       with:
-        app-name: webapp-quarkus-movies
+        app-name: webapp-quarkus-jenkins
         images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         
     - name: Ejecutar smoke tests
       run: |
         echo "Ejecutando smoke tests..."
         sleep 60
-        APP_URL="https://webapp-quarkus-movies.azurewebsites.net"
+        APP_URL="https://webapp-quarkus-jenkins.azurewebsites.net"
         
         # Test health endpoint
         curl -f $APP_URL/users/hello || exit 1

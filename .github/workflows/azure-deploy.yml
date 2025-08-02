@@ -15,9 +15,9 @@ on:
         - staging
 
 env:
-  AZURE_WEBAPP_NAME: webapp-quarkus-movies
-  AZURE_RESOURCE_GROUP: rg-quarkus-app
-  CONTAINER_REGISTRY: acrquarkusapp.azurecr.io
+  AZURE_WEBAPP_NAME: webapp-quarkus-jenkins
+  AZURE_RESOURCE_GROUP: rg-quarkus-jenkins
+  CONTAINER_REGISTRY: acquarkusjenkins.azurecr.io
   IMAGE_NAME: quarkus-microservice
 
 jobs:
@@ -52,7 +52,7 @@ jobs:
         
     - name: Login a Azure Container Registry
       run: |
-        az acr login --name acrquarkusapp
+        az acr login --name acquarkusjenkins
         
     - name: Construir y subir imagen Docker
       working-directory: ./Quarkus-Docker
