@@ -1,0 +1,35 @@
+FROM jenkins/jenkins:lts
+USER root
+
+# Instala dependencias básicas, Git, jq y certificados
+RUN apt-get update && \
+    apt-get install -y git jq curl apt-transport-https ca-certificates gnupg lsb-release software-properties-common unzip software-properties-common gnupg2
+
+# Instala Azure CLI
+RUN curl -sL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor > microsoft.gpg && \
+    install -o root -g root -m 644 microsoft.gpg /etc/apt/trusted.gpg.d/ && \
+    echo "deb [arch=amd64] https://packages.microsoft.com/repos/azure-cli/ $(lsb_release -cs) main" > /etc/apt/sources.list.d/azure-cli.list && \
+    apt-get update && \
+    apt-get install -y azure-cli && \
+    rm -f microsoft.gpg
+
+# Instala Terraform
+ENV TERRAFORM_VERSION=1.8.4
+RUN curl -fsSL https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip -o terraform.zip && \
+    unzip terraform.zip && \
+    mv terraform /usr/local/bin/ && \
+    rm terraform.zip
+
+# Instalar Docker
+RUN curl -fsSL https://get.docker.com -o get-docker.sh && \
+    sh get-docker.sh && \
+    usermod -aG docker jenkins
+
+# Crear grupo docker si no existe y agregar jenkins
+RUN groupadd -f docker && \
+    usermod -aG docker jenkins
+
+# Verificaciones opcionales (puedes quitarlas si no deseas salidas de versión)
+RUN git --version && jq --version && az version && terraform -version && docker --version
+
+USER jenkins 

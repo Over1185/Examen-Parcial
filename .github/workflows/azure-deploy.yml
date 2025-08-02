@@ -1,0 +1,79 @@
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: 'Environment to deploy'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+        - production
+        - staging
+
+env:
+  AZURE_WEBAPP_NAME: webapp-quarkus-movies
+  AZURE_RESOURCE_GROUP: rg-quarkus-app
+  CONTAINER_REGISTRY: acrquarkusapp.azurecr.io
+  IMAGE_NAME: quarkus-microservice
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout código
+      uses: actions/checkout@v4
+      
+    - name: Configurar Java 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Cache dependencias Maven
+      uses: actions/cache@v3
+      with:
+        path: ~/.m2
+        key: ${{ runner.os }}-m2-${{ hashFiles('**/pom.xml') }}
+        restore-keys: ${{ runner.os }}-m2
+        
+    - name: Compilar aplicación
+      working-directory: ./Quarkus-Docker
+      run: ./mvnw clean package -DskipTests
+      
+    - name: Login a Azure
+      uses: azure/login@v1
+      with:
+        creds: ${{ secrets.AZURE_CREDENTIALS }}
+        
+    - name: Login a Azure Container Registry
+      run: |
+        az acr login --name acrquarkusapp
+        
+    - name: Construir y subir imagen Docker
+      working-directory: ./Quarkus-Docker
+      run: |
+        IMAGE_TAG=${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        IMAGE_LATEST=${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+        
+        docker build -t $IMAGE_TAG -t $IMAGE_LATEST .
+        docker push $IMAGE_TAG
+        docker push $IMAGE_LATEST
+        
+    - name: Deploy a Azure App Service
+      uses: azure/webapps-deploy@v2
+      with:
+        app-name: ${{ env.AZURE_WEBAPP_NAME }}
+        images: ${{ env.CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        
+    - name: Verificar deployment
+      run: |
+        echo "Esperando que la aplicación esté lista..."
+        sleep 60
+        APP_URL="https://${{ env.AZURE_WEBAPP_NAME }}.azurewebsites.net"
+        curl -f $APP_URL/users/hello || exit 1
+        echo "✅ Deployment exitoso! App disponible en: $APP_URL"
