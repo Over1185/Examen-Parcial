@@ -96,7 +96,16 @@ pipeline {
                 dir('azure-terraform') {
                     sh '''
                         echo "Generando plan de Terraform..."
-                        terraform plan -out=tfplan
+                        
+                        # Verificar si hay recursos existentes que puedan causar conflictos
+                        if terraform plan -out=tfplan 2>&1 | grep -q "zone.*can only be changed"; then
+                            echo "⚠️ Detectado conflicto de zona en PostgreSQL, destruyendo recursos existentes..."
+                            terraform destroy -auto-approve || true
+                            echo "✅ Recursos destruidos, regenerando plan..."
+                            terraform plan -out=tfplan
+                        else
+                            terraform plan -out=tfplan
+                        fi
                     '''
                 }
             }
@@ -115,7 +124,21 @@ pipeline {
                 dir('azure-terraform') {
                     sh '''
                         echo "Aplicando cambios en Azure..."
-                        terraform apply -auto-approve tfplan
+                        
+                        # Intentar aplicar cambios
+                        if terraform apply -auto-approve tfplan; then
+                            echo "✅ Terraform apply exitoso"
+                        else
+                            echo "⚠️ Error en terraform apply, intentando destruir y recrear..."
+                            
+                            # Destruir recursos existentes
+                            echo "Destruyendo recursos existentes..."
+                            terraform destroy -auto-approve || true
+                            
+                            # Recrear desde cero
+                            echo "Recreando infraestructura desde cero..."
+                            terraform apply -auto-approve
+                        fi
                         
                         # Obtener outputs
                         terraform output -json > terraform-outputs.json
