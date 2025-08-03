@@ -19,7 +19,7 @@ public class UserResource {
     @Path("/hello")
     @Produces(MediaType.TEXT_PLAIN)
     public String hello() {
-        return "Hola";
+        return "Buenas Tardes, Profesor Sayago.";
     }
     
     
